@@ -2,7 +2,7 @@
 
 Flap Bit is a small web game. Tap the board, click, or press Space to flap a square "bit" upward, and fly it through the gaps in the pipes without touching them, the ground or the ceiling. Each pipe you pass scores a point, and your best score is saved on your device.
 
-Live demo: https://YOUR-USERNAME.github.io/Flap-Bit/
+Live demo: https://rajshrestha-07.github.io/Flap-Bit/
 
 Built with: HTML, CSS and JavaScript.
 
