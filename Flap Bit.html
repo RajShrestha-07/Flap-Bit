@@ -1,0 +1,149 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Flap Bit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow column on graph paper. Title, a tall canvas you tap to flap, and score and best underneath. */
+:root {
+  --paper: #eef1f4; --card: #ffffff; --ink: #14233a; --muted: #5c6b80; --line: #cdd5df;
+  --hot: #e8452c; --pipe: #14233a;
+  --accent: #14233a; --accent-ink: #eef1f4;
+  --display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1826; --card: #17233a; --ink: #e7ecf4; --muted: #93a2ba; --line: #2a3a56;
+    --hot: #ffb02e; --pipe: #e7ecf4; --accent: #e7ecf4; --accent-ink: #0f1826; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1826; --card: #17233a; --ink: #e7ecf4; --muted: #93a2ba; --line: #2a3a56;
+  --hot: #ffb02e; --pipe: #e7ecf4; --accent: #e7ecf4; --accent-ink: #0f1826; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 14px; line-height: 1.5;
+  padding-inline: 16px; padding-block: 28px 56px;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 28px 28px; background-position: -1px -1px;
+}
+main { max-width: 380px; margin-inline: auto; }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+h1 { font-family: var(--display); font-weight: 800; font-size: clamp(2rem, 9vw, 3rem); line-height: 1; letter-spacing: -0.02em; margin: 0; }
+p { margin: 0; color: var(--muted); }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, canvas:focus-visible { outline: 3px solid var(--hot); outline-offset: 2px; }
+canvas { display: block; width: 100%; max-width: 100%; aspect-ratio: 2 / 3; border: 2px solid var(--ink); border-radius: 4px; background: var(--card); touch-action: manipulation; cursor: pointer; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.stat { display: flex; gap: 18px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.stat b { color: var(--ink); font-weight: 600; }
+.btn { font-weight: 600; padding: 9px 14px; color: var(--accent-ink); background: var(--accent); border: 2px solid var(--accent); border-radius: 4px; }
+</style>
+
+<main>
+  <div class="panel">
+    <h1>Flap Bit</h1>
+    <p>Tap the board, click, or press Space to flap. Fly the bit through the gaps.</p>
+    <canvas id="cv" width="320" height="480" tabindex="0" aria-label="Flap Bit game board. Tap or press space to flap."></canvas>
+    <div class="row">
+      <button class="btn" id="restart" type="button">Restart</button>
+      <div class="stat"><span>Score <b id="score">0</b></span><span>Best <b id="best">0</b></span></div>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  function cssv(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  var cv = $("cv"), ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  var GROUND = 40, GAP = 125, PIPE_W = 52, SPACING = 175, BX = 90, BR = 12;
+  var GRAV = 0.42, FLAP = -6.8, SPEED = 2.1;
+  var by, vy, pipes, score, state = "ready", last = 0, best = 0, tick = 0, raf = null;
+  try { best = Number(localStorage.getItem("flapbit-best")) || 0; } catch (e) {}
+  $("best").textContent = best;
+
+  function reset() {
+    by = H / 2 - 30; vy = 0; score = 0; pipes = []; tick = 0;
+    for (var i = 0; i < 3; i++) addPipe(W + 60 + i * SPACING);
+    $("score").textContent = 0; state = "ready";
+  }
+  function addPipe(x) {
+    var min = 70, max = H - GROUND - GAP - 70;
+    pipes.push({ x: x, top: min + Math.random() * (max - min), scored: false });
+  }
+  function flap() {
+    if (state === "dead") return;
+    if (state === "ready") state = "play";
+    vy = FLAP;
+  }
+  function die() {
+    state = "dead";
+    if (score > best) { best = score; $("best").textContent = best; try { localStorage.setItem("flapbit-best", String(best)); } catch (e) {} }
+  }
+  function update(dt) {
+    tick += dt;
+    if (state === "ready") { by = H / 2 - 30 + Math.sin(tick / 8) * 6; return; }
+    if (state !== "play") return;
+    vy += GRAV * dt; by += vy * dt;
+    pipes.forEach(function (p) { p.x -= SPEED * dt; });
+    if (pipes[0].x + PIPE_W < -4) { pipes.shift(); addPipe(pipes[pipes.length - 1].x + SPACING); }
+    pipes.forEach(function (p) {
+      if (!p.scored && p.x + PIPE_W < BX - BR) { p.scored = true; score++; $("score").textContent = score; }
+      var inX = BX + BR > p.x && BX - BR < p.x + PIPE_W;
+      if (inX && (by - BR < p.top || by + BR > p.top + GAP)) die();
+    });
+    if (by + BR > H - GROUND || by - BR < 0) die();
+  }
+  function render() {
+    var ink = cssv("--ink"), hot = cssv("--hot"), pipe = cssv("--pipe"), card = cssv("--card"), line = cssv("--line");
+    ctx.fillStyle = card; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = line; ctx.lineWidth = 1;
+    for (var y = 40; y < H - GROUND; y += 40) { ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); ctx.stroke(); }
+    ctx.fillStyle = pipe;
+    pipes.forEach(function (p) {
+      ctx.fillRect(p.x, 0, PIPE_W, p.top);
+      ctx.fillRect(p.x, p.top + GAP, PIPE_W, H - GROUND - p.top - GAP);
+      ctx.fillRect(p.x - 4, p.top - 14, PIPE_W + 8, 14);
+      ctx.fillRect(p.x - 4, p.top + GAP, PIPE_W + 8, 14);
+    });
+    ctx.fillStyle = ink; ctx.fillRect(0, H - GROUND, W, GROUND);
+    ctx.fillStyle = card; ctx.font = "600 12px " + cssv("--mono"); ctx.textAlign = "left";
+    for (var x = 6; x < W; x += 54) ctx.fillText("0101", x, H - 16);
+    // bird: a square bit that tilts with speed
+    ctx.save(); ctx.translate(BX, by); ctx.rotate(Math.max(-0.5, Math.min(0.9, vy / 10)));
+    ctx.fillStyle = hot; ctx.fillRect(-BR, -BR, BR * 2, BR * 2);
+    ctx.fillStyle = ink; ctx.font = "800 15px " + cssv("--mono"); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(Math.floor(tick / 6) % 2 ? "1" : "0", 0, 1);
+    ctx.restore();
+    ctx.fillStyle = ink; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    ctx.font = "800 44px " + cssv("--display");
+    if (state !== "ready") ctx.fillText(String(score), W / 2, 70);
+    if (state === "ready") { ctx.font = "800 22px " + cssv("--display"); ctx.fillText("Tap to start", W / 2, H / 2 + 60); }
+    if (state === "dead") {
+      ctx.fillStyle = card; ctx.globalAlpha = 0.85; ctx.fillRect(40, H / 2 - 60, W - 80, 120); ctx.globalAlpha = 1;
+      ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.strokeRect(40, H / 2 - 60, W - 80, 120);
+      ctx.fillStyle = ink; ctx.font = "800 26px " + cssv("--display"); ctx.fillText("Crashed! Score " + score, W / 2, H / 2 - 10);
+      ctx.font = "600 14px " + cssv("--mono"); ctx.fillText("Tap to try again", W / 2, H / 2 + 24);
+    }
+  }
+  function loop(now) {
+    var dt = Math.min(2.5, (now - (last || now)) / 16.67); last = now;
+    update(dt); render(); raf = requestAnimationFrame(loop);
+  }
+  function input(e) {
+    if (e) e.preventDefault();
+    if (state === "dead") { reset(); return; }
+    flap();
+  }
+  cv.addEventListener("pointerdown", input);
+  document.addEventListener("keydown", function (e) {
+    if (e.code === "Space" || e.key === " ") { if (document.activeElement && document.activeElement.tagName === "BUTTON") return; input(e); }
+  });
+  $("restart").addEventListener("click", reset);
+  reset(); raf = requestAnimationFrame(loop);
+})();
+</script>
+
+</body></html>
